@@ -1,11 +1,10 @@
-// quiz.js - Rekonstruksi Struktur Utama BoyHack (Bersih dari Sistem Token & API Boy)
+// quiz.js - Versi Perbaikan Total Koneksi & Parsing Data CheatNetwork
 (async () => {
-  console.log("🚀 Menyuntikkan Engine BoyHack (Custom Version)...");
+  console.log("🚀 Menyuntikkan Engine BoyHack Terbuka (Anti-Cheat & Auto-Fetch)...");
 
   // ==========================================
   // 1. BYPASS SYSTEM & ANTI-DETECTION ENGINE
   // ==========================================
-  // Memaksa status halaman selalu dianggap aktif dan terlihat oleh sistem ujian
   const forcePageActive = () => {
     Object.defineProperty(document, "visibilityState", { get: () => "visible", configurable: true });
     Object.defineProperty(document, "hidden", { get: () => false, configurable: true });
@@ -13,7 +12,6 @@
   };
   forcePageActive();
 
-  // Memblokir semua event pelacak tab-out, fullscreen, dan interaksi yang biasa dipakai anti-cheat
   const bypassEvents = [
     "visibilitychange", "webkitvisibilitychange", "blur", "focus", "resize", 
     "mouseleave", "contextmenu", "copy", "paste", "selectstart"
@@ -24,7 +22,6 @@
     document.addEventListener(eventName, e => e.stopImmediatePropagation(), true);
   });
 
-  // Melindungi interval agar status visibilityState tidak ditimpa balik oleh script game
   const originalSetInterval = window.setInterval;
   window.setInterval = function (handler, timeout) {
     return originalSetInterval(function () {
@@ -33,33 +30,28 @@
     }, timeout);
   };
 
-  // Mengunci deteksi layar penuh (Fullscreen)
   Object.defineProperty(document, "fullscreenElement", { get: () => document.documentElement, configurable: true });
   document.addEventListener("fullscreenchange", e => e.stopImmediatePropagation(), true);
   window.addEventListener("fullscreenchange", e => e.stopImmediatePropagation(), true);
   document.hasFocus = () => true;
 
-  console.log("🔥 Proteksi Browser Terlewati: Anti-Blur, Anti-Resize, & Fitur Copy-Paste Aktif.");
-
-  // Cache lokal untuk menampung respon dari database CheatNetwork
   let gameDatabasePayload = null;
 
   // ==========================================
-  // 2. KONEKSI LINK DATA CHEATNETWORK
+  // 2. KONEKSI LINK DATA CHEATNETWORK (FIXED)
   // ==========================================
   async function loadCheatNetworkData(pinGame, tipePlatform) {
     let targetEndpoint = "";
     
-    // Menentukan endpoint API eksternal berdasarkan jenis game yang dipilih
+    // Menghubungkan langsung ke endpoint publik/bypass CheatNetwork
     if (tipePlatform === "kahoot") {
       targetEndpoint = `https://cheatnetwork.eu/api/services/kahoot?pin=${encodeURIComponent(pinGame)}`;
     } else {
-      // Menggunakan database Quizizz sebagai basis utama Wayground
       targetEndpoint = `https://cheatnetwork.eu/api/services/quizizz?pin=${encodeURIComponent(pinGame)}`;
     }
 
     try {
-      console.log(`📡 Menghubungkan ke CheatNetwork untuk PIN: ${pinGame}...`);
+      console.log(`📡 Mencoba sinkronisasi PIN: ${pinGame}...`);
       const response = await fetch(targetEndpoint, {
         method: "GET",
         headers: { "Accept": "application/json" }
@@ -67,28 +59,48 @@
       
       if (!response.ok) return false;
       
-      gameDatabasePayload = await response.json();
-      console.log("🎯 Sinkronisasi Database Jawaban Berhasil!", gameDatabasePayload);
+      const rawData = await response.json();
+      
+      // Validasi apakah data dari CheatNetwork kosong atau tidak
+      if (!rawData || (Array.isArray(rawData) && rawData.length === 0) || (rawData.success === false)) {
+        return false;
+      }
+
+      gameDatabasePayload = rawData;
       return true;
     } catch (error) {
-      console.error("❌ Gagal mengambil data dari CheatNetwork:", error);
+      console.error("❌ Error Fetching:", error);
       return false;
     }
   }
 
-  // Fungsi pencari teks soal di dalam database CheatNetwork
+  // Parser Pintar: Membaca segala jenis perubahan struktur objek JSON CheatNetwork
   function ekstraktorKunciJawaban(teksSoal) {
     if (!gameDatabasePayload) return "Database Game Kosong.";
     if (!teksSoal) return "Menunggu deteksi soal aktif...";
 
     const soalBersih = teksSoal.toLowerCase().trim();
-    const listPertanyaan = gameDatabasePayload.questions || gameDatabasePayload.answers || [];
+    
+    // Auto-detect apakah data berbentuk array langsung, atau dibungkus dalam properti tertentu
+    let listPertanyaan = [];
+    if (Array.isArray(gameDatabasePayload)) {
+      listPertanyaan = gameDatabasePayload;
+    } else if (gameDatabasePayload.questions) {
+      listPertanyaan = gameDatabasePayload.questions;
+    } else if (gameDatabasePayload.data) {
+      listPertanyaan = gameDatabasePayload.data.questions || gameDatabasePayload.data;
+    } else if (gameDatabasePayload.answers) {
+      listPertanyaan = gameDatabasePayload.answers;
+    }
 
     if (Array.isArray(listPertanyaan)) {
       for (let item of listPertanyaan) {
-        const textPembanding = (item.text || item.question || item.title || "").toLowerCase();
+        // Cari teks pertanyaan di berbagai kemungkinan nama properti objek
+        const textPembanding = (item.text || item.question || item.title || item.questionText || "").toLowerCase();
+        
         if (textPembanding.includes(soalBersih) || soalBersih.includes(textPembanding)) {
-          return item.correctAnswer || item.answer || item.textAnswer || "Kunci ditemukan, silakan cek opsi.";
+          // Cari teks jawaban benar di berbagai kemungkinan nama properti objek
+          return item.correctAnswer || item.answer || item.textAnswer || item.correct || "Kunci ditemukan, cek opsi browser.";
         }
       }
     }
@@ -101,7 +113,7 @@
   function createModalOverlay(htmlContent) {
     const overlay = document.createElement("div");
     Object.assign(overlay.style, {
-      position: "fixed", inset: "0", background: "rgba(15, 23, 42, 0.75)",
+      position: "fixed", inset: "0", background: "rgba(15, 23, 42, 0.8)",
       backdropFilter: "blur(5px)", zIndex: "999999", display: "flex",
       alignItems: "center", justifyContent: "center", fontFamily: "sans-serif"
     });
@@ -113,8 +125,8 @@
   async function getConfiguration() {
     return new Promise(resolve => {
       const modalHTML = `
-        <div style="background:#ffffff; padding:30px; border-radius:16px; width:360px; text-align:center; box-shadow:0 25px 50px -12px rgba(0,0,0,0.25);">
-          <h2 style="margin-top:0; margin-bottom:6px; color:#1e293b; font-size:24px; font-weight:800;">BoyHack UI v2.0</h2>
+        <div style="background:#ffffff; padding:30px; border-radius:16px; width:360px; text-align:center; box-shadow:0 25px 50px -12px rgba(0,0,0,0.3);">
+          <h2 style="margin-top:0; margin-bottom:6px; color:#1e293b; font-size:24px; font-weight:800;">BoyHack UI v2.5</h2>
           <p style="color:#64748b; font-size:13px; margin-bottom:24px;">Bypass Token & Terintegrasi ke cheatnetwork.eu</p>
           
           <div style="text-align:left; margin-bottom:14px;">
@@ -156,7 +168,7 @@
         }
 
         statusLog.style.color = "#2563eb";
-        statusLog.textContent = "⏳ Memverifikasi Room ke CheatNetwork...";
+        statusLog.textContent = "⏳ Memverifikasi PIN ke Server CheatNetwork...";
 
         const isLoaded = await loadCheatNetworkData(pinValue, platformValue);
 
@@ -169,7 +181,7 @@
           }, 800);
         } else {
           statusLog.style.color = "#ef4444";
-          statusLog.textContent = "❌ Gagal! PIN tidak valid atau server target offline.";
+          statusLog.textContent = "❌ PIN tidak valid di CheatNetwork / Room Belum Mulai.";
         }
       });
     });
@@ -190,7 +202,6 @@
       flexDirection: "column", fontFamily: "sans-serif"
     });
 
-    // Bagian Atas / Header Panel (Bisa di-drag)
     const widgetHeader = document.createElement("div");
     Object.assign(widgetHeader.style, {
       padding: "14px", background: "#1e293b", color: "#f8fafc", fontWeight: "700",
@@ -208,13 +219,12 @@
     widgetHeader.appendChild(closeWidget);
     widgetContainer.appendChild(widgetHeader);
 
-    // Area Tampilan Utama Jawaban
     const widgetBody = document.createElement("div");
     Object.assign(widgetBody.style, { padding: "15px", flex: "1", overflowY: "auto", background: "#f8fafc" });
     widgetContainer.appendChild(widgetBody);
     document.body.appendChild(widgetContainer);
 
-    // SISTEM DRAG AND DROP MANUAL PANEL
+    // SYSTEM DRAG AND DROP
     let draggingActive = false, startMouseX = 0, startMouseY = 0;
     widgetHeader.addEventListener("mousedown", e => {
       draggingActive = true;
@@ -231,25 +241,23 @@
     document.addEventListener("mouseup", () => draggingActive = false);
 
     // ==========================================
-    // 5. DOM WATCHER LOOP (SCRAPER PERTANYAAN AKTIF)
+    // 5. DOM WATCHER LOOP (REALTIME DETECTOR)
     // ==========================================
     const domWatcherLoop = setInterval(() => {
       let currentQuestionText = "";
       let interactiveButtons = [];
 
-      // Membaca elemen halaman berdasarkan platform yang sedang berjalan
+      // Scraper Elemen Halaman Game
       if (platform === "kahoot" || window.location.hostname.includes("kahoot")) {
         const queryEl = document.querySelector('[data-functional-selector="question-block-title"]');
         if (queryEl) currentQuestionText = queryEl.innerText;
         interactiveButtons = Array.from(document.querySelectorAll('[data-functional-selector="answer-block"]'));
       } else {
-        // Mode Default untuk Quizizz / Wayground
         const queryEl = document.querySelector('.question-title, [class*="question"], [data-theme="question-text"], h1');
         if (queryEl) currentQuestionText = queryEl.innerText;
         interactiveButtons = Array.from(document.querySelectorAll('.answer-option, [class*="answer"], [class*="control-button"]'));
       }
 
-      // Mengubah isi tampilan UI Panel jika soal terdeteksi di layar browser
       if (currentQuestionText) {
         const finalAnswerKey = ekstraktorKunciJawaban(currentQuestionText);
         
@@ -260,13 +268,12 @@
           </div>
           <div>
             <span style="font-size:11px; font-weight:700; color:#2563eb; text-transform:uppercase;">Kunci Jawaban (CheatNetwork):</span>
-            <div style="background:#eff6ff; border:1px solid #bfdbfe; padding:14px; border-radius:8px; margin-top:4px; font-size:15px; font-weight:800; color:#1e40af; box-shadow: inset 0 2px 4px 0 rgba(0, 0, 0, 0.06);">
+            <div style="background:#eff6ff; border:1px solid #bfdbfe; padding:14px; border-radius:8px; margin-top:4px; font-size:15px; font-weight:800; color:#1e40af;">
               🔑 ${finalAnswerKey}
             </div>
           </div>
         `;
 
-        // Logika Eksekusi klik otomatis (Auto Jawab)
         if (platform === "autoJawab" && interactiveButtons.length > 0 && !finalAnswerKey.includes("tidak ditemukan")) {
           const matchedTarget = interactiveButtons.find(btn => btn.innerText.toLowerCase().includes(finalAnswerKey.toLowerCase()));
           if (matchedTarget && !matchedTarget.disabled) {
@@ -279,14 +286,13 @@
           <div style="text-align:center; padding-top:60px; color:#94a3b8;">
             <div style="font-size:32px; margin-bottom:10px;">📡</div>
             <p style="font-weight:700; margin:0; color:#475569;">Mencari Sesi Pertanyaan...</p>
-            <p style="font-size:12px; margin-top:4px; padding:0 20px;">Silakan mulai kuis atau tunggu sampai soal berikutnya muncul di layar.</p>
+            <p style="font-size:12px; margin-top:4px; padding:0 20px;">Silakan tunggu sampai soal muncul di layar untuk mencocokkan kunci.</p>
           </div>
         `;
       }
-    }, 1000); // Sinkronisasi berjalan konstan setiap 1 detik
+    }, 1000);
   }
 
-  // Meluncurkan framework overlay pelacak kuis
   launchFloatingWidget(appConfig.pin, appConfig.platform);
 
 })();
