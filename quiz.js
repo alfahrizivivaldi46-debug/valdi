@@ -76,48 +76,65 @@
   let gameDatabasePayload = null;
 
   // ==========================================
-  // 2. KONEKSI LINK DATA CHEATNETWORK (FIXED & DEBUGGED)
+  // 2. KONEKSI LINK DATA CHEATNETWORK (PERBAIKAN TOTAL)
   // ==========================================
   async function loadCheatNetworkData(pinGame, tipePlatform) {
     let targetEndpoint = "";
 
-    // Memetakan opsi game ke endpoint CheatNetwork yang sesuai permintaan kamu
-    if (tipePlatform === "kahoot") {  
-      targetEndpoint = `https://cheatnetwork.eu/services/kahoot?pin=${encodeURIComponent(pinGame)}`;  
-    } else if (tipePlatform === "wayground" || tipePlatform === "quizizz") {  
-      targetEndpoint = `https://cheatnetwork.eu/services/quizizz?pin=${encodeURIComponent(pinGame)}`;  
+    // Sesuai permintaan: diarahkan langsung ke struktur URL layanan utama
+    if (tipePlatform === "kahoot") {
+      targetEndpoint = `https://cheatnetwork.eu/services/kahoot?pin=${encodeURIComponent(pinGame)}`;
     } else {
-      // Fallback untuk autoJawab atau opsi tak terduga
       targetEndpoint = `https://cheatnetwork.eu/services/quizizz?pin=${encodeURIComponent(pinGame)}`;
-    }  
+    }
 
-    try {  
-      console.log(`📡 Mencoba sinkronisasi PIN [${tipePlatform.toUpperCase()}]: ${pinGame}...`);  
+    try {
+      console.log(
+        `📡 Mencoba sinkronisasi PIN [${tipePlatform.toUpperCase()}]: ${pinGame}...`,
+      );
       console.log(`🔗 Target URL: ${targetEndpoint}`);
 
-      const response = await fetch(targetEndpoint, {  
-        method: "GET",  
-        headers: { Accept: "application/json" },  
-      });  
+      // Melakukan fetch ke halaman web layanan
+      const response = await fetch(targetEndpoint, {
+        method: "GET",
+        // Menghapus header JSON agar browser meminta dokumen halaman web yang tepat
+        headers: {
+          Accept: "text/html,application/xhtml+xml,application/xml;q=0.9",
+        },
+      });
 
-      if (!response.ok) return false;  
+      if (!response.ok) {
+        console.error(
+          `❌ Server merespon dengan kode status: ${response.status}`,
+        );
+        return false;
+      }
 
-      const rawData = await response.json();  
+      // Mengambil data dalam bentuk teks (HTML) bukan JSON
+      const htmlText = await response.text();
 
-      // Validasi apakah data dari CheatNetwork kosong atau tidak  
-      if (  
-        !rawData ||  
-        (Array.isArray(rawData) && rawData.length === 0) ||  
-        rawData.success === false  
-      ) {  
-        return false;  
-      }  
+      // Validasi sederhana: Jika halaman berisi indikasi kode salah atau eror
+      if (
+        htmlText.includes("Invalid PIN") ||
+        htmlText.includes("Not Found") ||
+        htmlText.length < 500
+      ) {
+        console.warn(
+          "⚠️ Validasi Gagal: Indikasi PIN tidak valid ditemukan di teks halaman.",
+        );
+        return false;
+      }
 
-      gameDatabasePayload = rawData;  
-      return true;  
-    } catch (error) {  
-      console.error("❌ Error Fetching dari CheatNetwork:", error);  
-      return false;  
+      // Alternatif Penyimpanan Payload:
+      // Karena kita mengambil halaman HTML, fungsi 'ekstraktorKunciJawaban' bawaanmu yang berbasis objek JSON
+      // tidak akan bisa membaca teks mentah ini secara langsung.
+      // Kita simpan teks HTML ini ke variabel global agar bisa di-scrape di fungsi parser berikutnya.
+      gameDatabasePayload = htmlText;
+
+      return true;
+    } catch (error) {
+      console.error("❌ Error Fetching/CORS Blocked:", error);
+      return false;
     }
   }
 
@@ -126,47 +143,47 @@
     if (!gameDatabasePayload) return "Database Game Kosong.";
     if (!teksSoal) return "Menunggu deteksi soal aktif...";
 
-    const soalBersih = teksSoal.toLowerCase().trim();  
+    const soalBersih = teksSoal.toLowerCase().trim();
 
-    // Auto-detect apakah data berbentuk array langsung, atau dibungkus dalam properti tertentu  
-    let listPertanyaan = [];  
-    if (Array.isArray(gameDatabasePayload)) {  
-      listPertanyaan = gameDatabasePayload;  
-    } else if (gameDatabasePayload.questions) {  
-      listPertanyaan = gameDatabasePayload.questions;  
-    } else if (gameDatabasePayload.data) {  
-      listPertanyaan =  
-        gameDatabasePayload.data.questions || gameDatabasePayload.data;  
-    } else if (gameDatabasePayload.answers) {  
-      listPertanyaan = gameDatabasePayload.answers;  
-    }  
+    // Auto-detect apakah data berbentuk array langsung, atau dibungkus dalam properti tertentu
+    let listPertanyaan = [];
+    if (Array.isArray(gameDatabasePayload)) {
+      listPertanyaan = gameDatabasePayload;
+    } else if (gameDatabasePayload.questions) {
+      listPertanyaan = gameDatabasePayload.questions;
+    } else if (gameDatabasePayload.data) {
+      listPertanyaan =
+        gameDatabasePayload.data.questions || gameDatabasePayload.data;
+    } else if (gameDatabasePayload.answers) {
+      listPertanyaan = gameDatabasePayload.answers;
+    }
 
-    if (Array.isArray(listPertanyaan)) {  
-      for (let item of listPertanyaan) {  
-        // Cari teks pertanyaan di berbagai kemungkinan nama properti objek  
-        const textPembanding = (  
-          item.text ||  
-          item.question ||  
-          item.title ||  
-          item.questionText ||  
-          ""  
-        ).toLowerCase();  
+    if (Array.isArray(listPertanyaan)) {
+      for (let item of listPertanyaan) {
+        // Cari teks pertanyaan di berbagai kemungkinan nama properti objek
+        const textPembanding = (
+          item.text ||
+          item.question ||
+          item.title ||
+          item.questionText ||
+          ""
+        ).toLowerCase();
 
-        if (  
-          textPembanding.includes(soalBersih) ||  
-          soalBersih.includes(textPembanding)  
-        ) {  
-          // Cari teks jawaban benar di berbagai kemungkinan nama properti objek  
-          return (  
-            item.correctAnswer ||  
-            item.answer ||  
-            item.textAnswer ||  
-            item.correct ||  
-            "Kunci ditemukan, cek opsi browser."  
-          );  
-        }  
-      }  
-    }  
+        if (
+          textPembanding.includes(soalBersih) ||
+          soalBersih.includes(textPembanding)
+        ) {
+          // Cari teks jawaban benar di berbagai kemungkinan nama properti objek
+          return (
+            item.correctAnswer ||
+            item.answer ||
+            item.textAnswer ||
+            item.correct ||
+            "Kunci ditemukan, cek opsi browser."
+          );
+        }
+      }
+    }
     return "Soal tidak ditemukan di database CheatNetwork.";
   }
 
@@ -220,42 +237,42 @@
             Hubungkan & Ambil Jawaban  
           </button>  
         </div>  
-      `;  
+      `;
 
-      const overlay = createModalOverlay(modalHTML);  
-      const gamePinInput = overlay.querySelector("#gamePin");  
-      const gamePlatformSelect = overlay.querySelector("#gamePlatform");  
-      const executeBtn = overlay.querySelector("#executeBtn");  
-      const statusLog = overlay.querySelector("#statusLog");  
+      const overlay = createModalOverlay(modalHTML);
+      const gamePinInput = overlay.querySelector("#gamePin");
+      const gamePlatformSelect = overlay.querySelector("#gamePlatform");
+      const executeBtn = overlay.querySelector("#executeBtn");
+      const statusLog = overlay.querySelector("#statusLog");
 
-      executeBtn.addEventListener("click", async () => {  
-        const pinValue = gamePinInput.value.trim();  
-        const platformValue = gamePlatformSelect.value;  
+      executeBtn.addEventListener("click", async () => {
+        const pinValue = gamePinInput.value.trim();
+        const platformValue = gamePlatformSelect.value;
 
-        if (!pinValue || platformValue === "default") {  
-          statusLog.textContent = "⚠️ Mohon isi KODE dan Pilih Platform Game!";  
-          return;  
-        }  
+        if (!pinValue || platformValue === "default") {
+          statusLog.textContent = "⚠️ Mohon isi KODE dan Pilih Platform Game!";
+          return;
+        }
 
-        statusLog.style.color = "#2563eb";  
-        statusLog.textContent =  
-          "⏳ Memverifikasi KODE ke Server CheatNetwork...";  
+        statusLog.style.color = "#2563eb";
+        statusLog.textContent =
+          "⏳ Memverifikasi KODE ke Server CheatNetwork...";
 
-        const isLoaded = await loadCheatNetworkData(pinValue, platformValue);  
+        const isLoaded = await loadCheatNetworkData(pinValue, platformValue);
 
-        if (isLoaded) {  
-          statusLog.style.color = "#16a34a";  
-          statusLog.textContent = "✅ Sukses! Membuka Dashboard Jawaban...";  
-          setTimeout(() => {  
-            overlay.remove();  
-            resolve({ pin: pinValue, platform: platformValue });  
-          }, 800);  
-        } else {  
-          statusLog.style.color = "#ef4444";  
-          statusLog.textContent =  
-            "❌ KODE tidak valid di CheatNetwork / Room Belum Mulai.";  
-        }  
-      });  
+        if (isLoaded) {
+          statusLog.style.color = "#16a34a";
+          statusLog.textContent = "✅ Sukses! Membuka Dashboard Jawaban...";
+          setTimeout(() => {
+            overlay.remove();
+            resolve({ pin: pinValue, platform: platformValue });
+          }, 800);
+        } else {
+          statusLog.style.color = "#ef4444";
+          statusLog.textContent =
+            "❌ KODE tidak valid di CheatNetwork / Room Belum Mulai.";
+        }
+      });
     });
   }
 
@@ -284,93 +301,93 @@
       fontFamily: "sans-serif",
     });
 
-    const widgetHeader = document.createElement("div");  
-    Object.assign(widgetHeader.style, {  
-      padding: "14px",  
-      background: "#1e293b",  
-      color: "#f8fafc",  
-      fontWeight: "700",  
-      cursor: "move",  
-      display: "flex",  
-      justifyContent: "space-between",  
-      alignItems: "center",  
-      fontSize: "14px",  
-    });  
-    widgetHeader.innerHTML = `<span>BoyHack Panel [${platform.toUpperCase()}]</span>`;  
+    const widgetHeader = document.createElement("div");
+    Object.assign(widgetHeader.style, {
+      padding: "14px",
+      background: "#1e293b",
+      color: "#f8fafc",
+      fontWeight: "700",
+      cursor: "move",
+      display: "flex",
+      justifyContent: "space-between",
+      alignItems: "center",
+      fontSize: "14px",
+    });
+    widgetHeader.innerHTML = `<span>BoyHack Panel [${platform.toUpperCase()}]</span>`;
 
-    const closeWidget = document.createElement("span");  
-    closeWidget.textContent = "✕";  
-    closeWidget.style.cursor = "pointer";  
-    closeWidget.addEventListener("click", () => {  
-      clearInterval(domWatcherLoop);  
-      widgetContainer.remove();  
-    });  
-    widgetHeader.appendChild(closeWidget);  
-    widgetContainer.appendChild(widgetHeader);  
+    const closeWidget = document.createElement("span");
+    closeWidget.textContent = "✕";
+    closeWidget.style.cursor = "pointer";
+    closeWidget.addEventListener("click", () => {
+      clearInterval(domWatcherLoop);
+      widgetContainer.remove();
+    });
+    widgetHeader.appendChild(closeWidget);
+    widgetContainer.appendChild(widgetHeader);
 
-    const widgetBody = document.createElement("div");  
-    Object.assign(widgetBody.style, {  
-      padding: "15px",  
-      flex: "1",  
-      overflowY: "auto",  
-      background: "#f8fafc",  
-    });  
-    widgetContainer.appendChild(widgetBody);  
-    document.body.appendChild(widgetContainer);  
+    const widgetBody = document.createElement("div");
+    Object.assign(widgetBody.style, {
+      padding: "15px",
+      flex: "1",
+      overflowY: "auto",
+      background: "#f8fafc",
+    });
+    widgetContainer.appendChild(widgetBody);
+    document.body.appendChild(widgetContainer);
 
-    // SYSTEM DRAG AND DROP  
-    let draggingActive = false,  
-      startMouseX = 0,  
-      startMouseY = 0;  
-    widgetHeader.addEventListener("mousedown", (e) => {  
-      draggingActive = true;  
-      startMouseX = e.clientX - widgetContainer.offsetLeft;  
-      startMouseY = e.clientY - widgetContainer.offsetTop;  
-    });  
-    document.addEventListener("mousemove", (e) => {  
-      if (draggingActive) {  
-        widgetContainer.style.left = e.clientX - startMouseX + "px";  
-        widgetContainer.style.top = e.clientY - startMouseY + "px";  
-        widgetContainer.style.right = "auto";  
-      }  
-    });  
-    document.addEventListener("mouseup", () => (draggingActive = false));  
+    // SYSTEM DRAG AND DROP
+    let draggingActive = false,
+      startMouseX = 0,
+      startMouseY = 0;
+    widgetHeader.addEventListener("mousedown", (e) => {
+      draggingActive = true;
+      startMouseX = e.clientX - widgetContainer.offsetLeft;
+      startMouseY = e.clientY - widgetContainer.offsetTop;
+    });
+    document.addEventListener("mousemove", (e) => {
+      if (draggingActive) {
+        widgetContainer.style.left = e.clientX - startMouseX + "px";
+        widgetContainer.style.top = e.clientY - startMouseY + "px";
+        widgetContainer.style.right = "auto";
+      }
+    });
+    document.addEventListener("mouseup", () => (draggingActive = false));
 
-    // ==========================================  
-    // 5. DOM WATCHER LOOP (REALTIME DETECTOR)  
-    // ==========================================  
-    const domWatcherLoop = setInterval(() => {  
-      let currentQuestionText = "";  
-      let interactiveButtons = [];  
+    // ==========================================
+    // 5. DOM WATCHER LOOP (REALTIME DETECTOR)
+    // ==========================================
+    const domWatcherLoop = setInterval(() => {
+      let currentQuestionText = "";
+      let interactiveButtons = [];
 
-      // Scraper Elemen Halaman Game  
-      if (  
-        platform === "kahoot" ||  
-        window.location.hostname.includes("kahoot")  
-      ) {  
-        const queryEl = document.querySelector(  
-          '[data-functional-selector="question-block-title"]',  
-        );  
-        if (queryEl) currentQuestionText = queryEl.innerText;  
-        interactiveButtons = Array.from(  
-          document.querySelectorAll(  
-            '[data-functional-selector="answer-block"]',  
-          ),  
-        );  
-      } else {  
-        const queryEl = document.querySelector(  
-          '.question-title, [class*="question"], [data-theme="question-text"], h1',  
-        );  
-        if (queryEl) currentQuestionText = queryEl.innerText;  
-        interactiveButtons = Array.from(  
-          document.querySelectorAll(  
-            '.answer-option, [class*="answer"], [class*="control-button"]',  
-          ),  
-        );  
-      }  
+      // Scraper Elemen Halaman Game
+      if (
+        platform === "kahoot" ||
+        window.location.hostname.includes("kahoot")
+      ) {
+        const queryEl = document.querySelector(
+          '[data-functional-selector="question-block-title"]',
+        );
+        if (queryEl) currentQuestionText = queryEl.innerText;
+        interactiveButtons = Array.from(
+          document.querySelectorAll(
+            '[data-functional-selector="answer-block"]',
+          ),
+        );
+      } else {
+        const queryEl = document.querySelector(
+          '.question-title, [class*="question"], [data-theme="question-text"], h1',
+        );
+        if (queryEl) currentQuestionText = queryEl.innerText;
+        interactiveButtons = Array.from(
+          document.querySelectorAll(
+            '.answer-option, [class*="answer"], [class*="control-button"]',
+          ),
+        );
+      }
 
-      if (currentQuestionText) {  
-        const finalAnswerKey = ekstraktorKunciJawaban(currentQuestionText);  
+      if (currentQuestionText) {
+        const finalAnswerKey = ekstraktorKunciJawaban(currentQuestionText);
 
         widgetBody.innerHTML = `  
           <div style="margin-bottom:14px;">  
@@ -383,30 +400,30 @@
               🔑 ${finalAnswerKey}  
             </div>  
           </div>  
-        `;  
+        `;
 
-        if (  
-          platform === "autoJawab" &&  
-          interactiveButtons.length > 0 &&  
-          !finalAnswerKey.includes("tidak ditemukan")  
-        ) {  
-          const matchedTarget = interactiveButtons.find((btn) =>  
-            btn.innerText.toLowerCase().includes(finalAnswerKey.toLowerCase()),  
-          );  
-          if (matchedTarget && !matchedTarget.disabled) {  
-            widgetBody.innerHTML += `<div style="text-align:center; color:#16a34a; font-weight:700; margin-top:12px; font-size:13px;">🤖 Auto Clicker Sedang Menjawab...</div>`;  
-            matchedTarget.click();  
-          }  
-        }  
-      } else {  
+        if (
+          platform === "autoJawab" &&
+          interactiveButtons.length > 0 &&
+          !finalAnswerKey.includes("tidak ditemukan")
+        ) {
+          const matchedTarget = interactiveButtons.find((btn) =>
+            btn.innerText.toLowerCase().includes(finalAnswerKey.toLowerCase()),
+          );
+          if (matchedTarget && !matchedTarget.disabled) {
+            widgetBody.innerHTML += `<div style="text-align:center; color:#16a34a; font-weight:700; margin-top:12px; font-size:13px;">🤖 Auto Clicker Sedang Menjawab...</div>`;
+            matchedTarget.click();
+          }
+        }
+      } else {
         widgetBody.innerHTML = `  
           <div style="text-align:center; padding-top:60px; color:#94a3b8;">  
             <div style="font-size:32px; margin-bottom:10px;">📡</div>  
             <p style="font-weight:700; margin:0; color:#475569;">Mencari Sesi Pertanyaan...</p>  
             <p style="font-size:12px; margin-top:4px; padding:0 20px;">Silakan tunggu sampai soal muncul di layar untuk mencocokkan kunci.</p>  
           </div>  
-        `;  
-      }  
+        `;
+      }
     }, 1000);
   }
 
